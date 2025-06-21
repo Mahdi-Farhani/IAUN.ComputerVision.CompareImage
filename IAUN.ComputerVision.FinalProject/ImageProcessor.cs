@@ -1,4 +1,6 @@
-﻿using System.Drawing;
+﻿using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Printing;
 
 namespace IAUN.ComputerVision.FinalProject;
 
@@ -13,6 +15,9 @@ public class ImageProcessor
         List<double[]> feats = [ExtractFeatures(mainPath, distancesList, anglesDeg)];
         foreach (var f in files)
         {
+            var fileName = Path.GetFileName(f);
+            Console.WriteLine($"{new string('-', 20)} {fileName} {new string('-', 20)}");
+
             feats.Add(ExtractFeatures(f, distancesList, anglesDeg));
         }
 
@@ -44,10 +49,12 @@ public class ImageProcessor
     private static double[] ExtractFeatures(string imgPath, List<int> distances, List<int> anglesDeg)
     {
         GetRgb(imgPath, out int H, out int W, out int[,,] rgb);
+        
         int[,,] cmy = ConvertRgbToCMY(H, W, rgb);
 
         List<double> feats = [];
-
+        var cmyDisplay = new[] { "C", "M", "Y" };
+        Dictionary<string, double[]> values = [];
         for (int ch = 0; ch < 3; ch++)
         {
             var glcms = ComputeGLCM(cmy, ch, distances, anglesDeg, levels: 256);
@@ -59,12 +66,59 @@ public class ImageProcessor
 
             int[,] lbp = ComputeLBP(cmy, ch);
             var hist = LbpHistogram(lbp, nBins: 256);
+            
+            var quantizedLevel = 8;
+            var quantizedHistogram = QuantizeHistogram(hist, quantizedLevel);
+            values.Add(cmyDisplay[ch], quantizedHistogram);
+
             feats.AddRange(hist);
+
+            PrintHist($"=== LBP Histogram – Channel {cmyDisplay[ch]} ===", hist);
+
+        }
+        foreach (var item in values)
+        {
+            Console.WriteLine($"quantized histogram for channel {item.Key}: {item.Value.Select(x => x.ToString("F3")).Aggregate(static (x, c) => x + "," + c)}");
         }
 
         return [.. feats];
     }
+    private static void PrintHist(string title, double[] hist)
+    {
+        Console.WriteLine(title);
+        for (int i = 0; i < hist.Length; i++)
+            Console.WriteLine($" bin[{i,3}] = {hist[i]:F4}");
+        Console.WriteLine();
+    }
+    private static double[] QuantizeHistogram(double[] hist256, int nBins = 8)
+    {
+        if (hist256 == null || hist256.Length != 256)
+            throw new ArgumentException("Histogram should have 256 length.");
 
+        if (256 % nBins != 0)
+            throw new ArgumentException("256 must be divisible by nbins.");
+
+        int step = 256 / nBins;
+        double[] hist8 = new double[nBins];
+
+
+        for (int i = 0; i < nBins; i++)
+        {
+            double sum = 0;
+            int start = i * step;
+            int end = start + step;
+            for (int j = start; j < end; j++)
+                sum += hist256[j];
+            hist8[i] = sum;
+        }
+
+        double total = hist8.Sum();
+        if (total > 0)
+            for (int i = 0; i < nBins; i++)
+                hist8[i] /= total;
+
+        return hist8;
+    }
     private static int[,,] ConvertRgbToCMY(int H, int W, int[,,] rgb)
     {
         int[,,] cmy = new int[H, W, 3];
@@ -149,6 +203,7 @@ public class ImageProcessor
         double eps = 1e-12;
 
         for (int i = 0; i < L; i++)
+        {
             for (int j = 0; j < L; j++)
             {
                 double p = glcm[i, j];
@@ -158,8 +213,12 @@ public class ImageProcessor
                 homogeneity += p / (1.0 + diff);
                 energy += p * p;
                 if (p > eps)
+                {
                     entropy -= p * Math.Log(p + eps, 2);
+
+                }
             }
+        }
 
         return [contrast, dissimilarity, homogeneity, energy, entropy];
     }
@@ -169,7 +228,7 @@ public class ImageProcessor
         int H = cmy.GetLength(0), W = cmy.GetLength(1);
         int[,] lbp = new int[H, W];
 
-        int[,] offsets = new int[,] {{  0, 1 }, { -1, 1 }, { -1, 0 }, { -1,-1 },{  0,-1 }, {  1,-1 }, {  1, 0 }, {  1, 1 }};
+        int[,] offsets = new int[,] { { 0, 1 }, { -1, 1 }, { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 }, { 1, 0 }, { 1, 1 } };
 
         for (int r = 0; r < H; r++)
         {
@@ -194,24 +253,30 @@ public class ImageProcessor
     }
     private static double[] LbpHistogram(int[,] lbp, int nBins = 256)
     {
-        var H = lbp.GetLength(0);
-        var W = lbp.GetLength(1);
-        var hist = new double[nBins];
+        int H = lbp.GetLength(0);
+        int W = lbp.GetLength(1);
+
+        double[] hist = new double[nBins];
+
+        int step = 256 / nBins;
+
         for (int r = 0; r < H; r++)
         {
             for (int c = 0; c < W; c++)
             {
-                hist[lbp[r, c]] += 1.0;
+                int code = lbp[r, c];
+                int bin = code / step;
+                if (bin >= nBins) bin = nBins - 1;
+                hist[bin] += 1.0;
             }
         }
-
         double sum = hist.Sum();
-
         if (sum > 0)
         {
             for (int i = 0; i < nBins; i++)
                 hist[i] /= sum;
         }
+
         return hist;
     }
     private static double[][] ZScoreNormalize(double[][] mat)
