@@ -49,7 +49,7 @@ public class ImageProcessor
     private static double[] ExtractFeatures(string imgPath, List<int> distances, List<int> anglesDeg)
     {
         GetRgb(imgPath, out int H, out int W, out int[,,] rgb);
-        
+
         int[,,] cmy = ConvertRgbToCMY(H, W, rgb);
 
         List<double> feats = [];
@@ -66,7 +66,7 @@ public class ImageProcessor
 
             int[,] lbp = ComputeLBP(cmy, ch);
             var hist = LbpHistogram(lbp, nBins: 256);
-            
+
             var quantizedLevel = 8;
             var quantizedHistogram = QuantizeHistogram(hist, quantizedLevel);
             values.Add(cmyDisplay[ch], quantizedHistogram);
@@ -331,5 +331,136 @@ public class ImageProcessor
             sum += Math.Abs(a[i] - b[i]);
         }
         return sum;
+    }
+
+    public static void SaveVisualization(
+           string queryImagePath,
+           string foundImagePath,
+           string outPath)
+    {
+        var bmpQuery = new Bitmap(queryImagePath);
+        var bmpFound = new Bitmap(foundImagePath);
+
+        int W = bmpQuery.Width;
+        int H = bmpQuery.Height;
+
+
+        GetRgb(queryImagePath, out _, out _, out var rgbQ);
+        var cmyQ = ConvertRgbToCMY(H, W, rgbQ);
+
+
+        Bitmap[] chBmps = new Bitmap[3];
+        for (int ch = 0; ch < 3; ch++)
+        {
+            var tmp = new Bitmap(W, H);
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    int v = cmyQ[y, x, ch];
+                    tmp.SetPixel(x, y, Color.FromArgb(v, v, v));
+                }
+            chBmps[ch] = tmp;
+        }
+
+
+        double[][] hists = new double[3][];
+        for (int ch = 0; ch < 3; ch++)
+        {
+
+            var hist = new double[256];
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                    hist[cmyQ[y, x, ch]] += 1.0;
+
+            double sum = hist.Sum();
+            if (sum > 0)
+                for (int i = 0; i < 256; i++)
+                    hist[i] /= sum;
+            hists[ch] = hist;
+        }
+
+
+
+
+
+        int cols = 3, rows = 3;
+        int canvasW = cols * W;
+        int canvasH = rows * H;
+
+        using var canvas = new Bitmap(canvasW, canvasH);
+        using var g = Graphics.FromImage(canvas);
+        g.Clear(Color.White);
+
+        var font = new Font("Arial", 12, FontStyle.Bold);
+        var brushText = Brushes.Black;
+
+
+
+        g.DrawImage(bmpQuery, 0, 0, W, H);
+        g.DrawString("Query Image", font, brushText, 4, 4);
+
+
+        g.DrawImage(bmpFound, W, 0, W, H);
+        g.DrawString("Found Image", font, brushText, W + 4, 4);
+
+
+
+
+
+        string[] chNames = { "C Channel", "M Channel", "Y Channel" };
+        for (int ch = 0; ch < 3; ch++)
+        {
+            int dx = ch * W;
+            int dy = 1 * H;
+            g.DrawImage(chBmps[ch], dx, dy, W, H);
+            g.DrawString(chNames[ch], font, brushText, dx + 4, dy + 4);
+        }
+
+
+        for (int ch = 0; ch < 3; ch++)
+        {
+            int dx = ch * W;
+            int dy = 2 * H;
+            DrawHistogram(g, hists[ch], dx, dy, W, H);
+            g.DrawString(chNames[ch] + " Hist", font, brushText, dx + 4, dy + 4);
+        }
+
+
+        var ext = Path.GetExtension(outPath).ToLower();
+        if (ext == ".png")
+            canvas.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+        else if (ext == ".jpg" || ext == ".jpeg")
+            canvas.Save(outPath, System.Drawing.Imaging.ImageFormat.Jpeg);
+        else
+            canvas.Save(outPath);
+    }
+
+
+    private static void DrawHistogram(Graphics g, double[] hist, int offsetX, int offsetY, int width, int height)
+    {
+        int bins = hist.Length;
+        float barW = (float)width / bins;
+        var brushBar = Brushes.SteelBlue;
+
+        double max = hist.Max();
+        if (max <= 0) max = 1;
+
+        for (int i = 0; i < bins; i++)
+        {
+            float h = (float)((hist[i] / max) * height);
+
+
+
+            g.FillRectangle(
+                brushBar,
+                offsetX + i * barW,
+                offsetY + (height - h),
+                barW,
+                h);
+        }
+
+        g.DrawLine(Pens.Black,
+            offsetX, offsetY + height,
+            offsetX + width, offsetY + height);
     }
 }
