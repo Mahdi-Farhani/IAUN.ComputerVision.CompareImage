@@ -2,7 +2,7 @@
 using IAUN.ComputerVision.FinalProject;
 Console.WriteLine("IAUN COMPUTER VISION Final Project");
 Console.WriteLine(new string('-', 50));
-var mainImgPath = @"Images\compare_6.jpg";
+var mainImgPath = @"Images\200.jpg";
 var folderPath = @"Test_Images";
 var outputPath = @"Output_Images";
 if (!Directory.Exists(outputPath))
